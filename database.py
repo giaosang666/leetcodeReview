@@ -100,30 +100,61 @@ def get_today_reviews():
     conn = connect_db()
     cursor = conn.cursor()
     today = datetime.now().date()
-    cursor.execute("SELECT id, leetcode_id, title, difficulty, status FROM problems WHERE next_review <= %s", (today,))
+    cursor.execute("SELECT leetcode_id, title, difficulty, next_review FROM problems WHERE next_review <= %s", (today,))
     rows = cursor.fetchall()
     conn.close()
     return rows
 
 # 更新题目复习状态
 def update_review_status(problem_id):
-    conn = connect_db()
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT solve_date, review_count, difficulty FROM problems WHERE id = %s", (problem_id,))
-    solve_date, review_count, difficulty = cursor.fetchone()
-    next_review = calculate_next_review(solve_date, review_count + 1, difficulty)
-    cursor.execute(
-        "UPDATE problems SET status = 'reviewed', review_count = review_count + 1, next_review = %s WHERE id = %s",
-        (next_review, problem_id)
-    )
-    conn.commit()
-    conn.close()
+    try:
+        # 获取当前题目的信息
+        cursor.execute("SELECT solve_date, review_count, difficulty FROM problems WHERE leetcode_id = %s", (problem_id,))
+        result = cursor.fetchone()
+        if result:
+            solve_date, review_count, difficulty = result
+            next_review = calculate_next_review(datetime.now().date(), review_count + 1, difficulty)
+            
+            # 更新题目状态
+            cursor.execute("""
+                UPDATE problems 
+                SET status = 'reviewed', 
+                    review_count = review_count + 1,
+                    next_review = %s
+                WHERE leetcode_id = %s
+            """, (next_review, problem_id))
+            conn.commit()
+            return True
+        else:
+            print(f"Problem with id {problem_id} not found")
+            return False
+    except mysql.connector.Error as e:
+        print(f"Database error: {e}")
+        return False
+    finally:
+        conn.close()
 
 # 获取所有题目信息
 def get_all_problems():
     conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM problems")
+    cursor.execute("SELECT leetcode_id, title, difficulty, next_review FROM problems")
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+def get_next_review_date(problem_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT difficulty, review_count FROM problems WHERE leetcode_id = %s", (problem_id,))
+        result = cursor.fetchone()
+        if result:
+            difficulty, review_count = result
+            today = datetime.now().date()
+            return calculate_next_review(today, review_count + 1, difficulty)
+        return None
+    finally:
+        conn.close()
